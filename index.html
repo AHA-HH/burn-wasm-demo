@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>1D Burgers FNO — zero-shot super-resolution</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+        max-width: 860px;
+        margin: 32px auto;
+        padding: 0 16px;
+        color: #222;
+        background: #fafafa;
+      }
+      h1 {
+        font-size: 1.4rem;
+        margin-bottom: 4px;
+      }
+      p.subtitle {
+        color: #666;
+        margin-top: 0;
+        font-size: 0.9rem;
+      }
+      .card {
+        background: #fff;
+        border: 1px solid #e2e2e2;
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 16px;
+      }
+      .tabs {
+        display: flex;
+        gap: 4px;
+        margin-bottom: 12px;
+      }
+      .tabs button {
+        flex: 1;
+        padding: 8px 12px;
+        border: 1px solid #d5d5d5;
+        background: #f2f2f2;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 0.9rem;
+        color: #444;
+      }
+      .tabs button.active {
+        background: #2a6ebb;
+        border-color: #2a6ebb;
+        color: #fff;
+      }
+      .panel.hidden {
+        display: none;
+      }
+      label {
+        font-size: 0.85rem;
+        color: #555;
+      }
+      select,
+      input[type="range"] {
+        width: 100%;
+      }
+      .control-row {
+        margin-bottom: 12px;
+      }
+      .control-row .value {
+        float: right;
+        font-variant-numeric: tabular-nums;
+        color: #2a6ebb;
+        font-weight: 600;
+      }
+      #draw-canvas {
+        border: 1px solid #cfcfcf;
+        border-radius: 4px;
+        touch-action: none;
+        cursor: crosshair;
+        display: block;
+        width: 100%;
+        max-width: 600px;
+      }
+      button#clear-draw {
+        margin-top: 8px;
+        padding: 6px 14px;
+        border: 1px solid #d5d5d5;
+        background: #f2f2f2;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      .resolution-card {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .resolution-card label {
+        white-space: nowrap;
+      }
+      #plot {
+        width: 100%;
+        max-width: 780px;
+        height: 320px;
+        border: 1px solid #e2e2e2;
+        border-radius: 4px;
+      }
+      #legend {
+        margin-top: 8px;
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+        font-size: 0.85rem;
+      }
+      .legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .legend-swatch {
+        width: 12px;
+        height: 12px;
+        border-radius: 2px;
+        display: inline-block;
+      }
+      #status {
+        font-size: 0.85rem;
+        color: #666;
+        margin-top: 8px;
+        min-height: 1.2em;
+      }
+      .hint {
+        font-size: 0.8rem;
+        color: #888;
+        margin-top: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>1D Burgers Fourier Neural Operator</h1>
+    <p class="subtitle">
+      Inference runs entirely in your browser (WebAssembly). Pick an initial condition
+      <code>a(x)</code>, and the FNO predicts <code>u(x, T)</code> — at any resolution, without
+      retraining.
+    </p>
+
+    <div class="card">
+      <div class="tabs">
+        <button id="tab-preset" class="active">Preset</button>
+        <button id="tab-sliders">Sliders</button>
+        <button id="tab-draw">Draw</button>
+      </div>
+
+      <div id="panel-preset" class="panel">
+        <div class="control-row">
+          <label for="preset-select">Held-out test example</label>
+          <select id="preset-select"></select>
+        </div>
+        <p class="hint">
+          Ground truth <code>u_true(x)</code> is overlaid, with a real relative L2 error at
+          training resolution.
+        </p>
+      </div>
+
+      <div id="panel-sliders" class="panel hidden">
+        <div class="control-row">
+          <label for="wavenumber">Dominant wavenumber <span id="wavenumber-label" class="value">2</span></label>
+          <input id="wavenumber" type="range" min="1" max="8" step="1" value="2" />
+        </div>
+        <div class="control-row">
+          <label for="amplitude">Amplitude <span id="amplitude-label" class="value">1.00</span></label>
+          <input id="amplitude" type="range" min="0.1" max="1.5" step="0.01" value="1.0" />
+        </div>
+        <p class="hint">
+          <code>a(x) = amplitude · sin(2π · wavenumber · x)</code> — smooth by construction, well
+          inside the training distribution.
+        </p>
+      </div>
+
+      <div id="panel-draw" class="panel hidden">
+        <canvas id="draw-canvas" width="600" height="240"></canvas>
+        <div>
+          <button id="clear-draw">Clear</button>
+        </div>
+        <p class="hint">
+          Draw <code>a(x)</code> freehand. On release it's projected onto the first 16 Fourier
+          modes before reaching the model — a hand-drawn curve is far outside the smooth training
+          distribution otherwise.
+        </p>
+      </div>
+    </div>
+
+    <div class="card resolution-card">
+      <label for="resolution">Evaluation resolution</label>
+      <input id="resolution" type="range" min="0" max="5" step="1" value="0" />
+      <span id="resolution-label" class="value">256</span>
+    </div>
+
+    <div class="card">
+      <canvas id="plot" width="780" height="320"></canvas>
+      <div id="legend"></div>
+      <div id="status"></div>
+    </div>
+
+    <script type="module" src="./index.js"></script>
+  </body>
+</html>
